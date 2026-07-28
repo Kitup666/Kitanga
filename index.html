@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kitanga — 漫画拼接工具</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+
+  <div id="app">
+
+    <!-- ─── Sidebar ─── -->
+    <aside id="sidebar">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg viewBox="0 0 28 28" fill="none">
+            <rect x="2" y="5" width="24" height="18" rx="3" stroke="currentColor" stroke-width="1.5"/>
+            <circle cx="14" cy="14" r="5" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M11 3h6v3h-6z" fill="currentColor" opacity="0.5"/>
+            <path d="M11 22h6v3h-6z" fill="currentColor" opacity="0.5"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <div class="brand-title">Kitanga</div>
+          <div class="brand-sub">漫画拼接</div>
+        </div>
+      </div>
+
+      <div class="panel-actions">
+        <button class="btn btn-action" id="btn-add">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          <span>添加图片</span>
+        </button>
+        <button class="btn btn-action" id="btn-add-folder">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          <span>文件夹</span>
+        </button>
+        <button class="btn btn-icon" id="btn-sort" title="排序">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 7v12M16 17l4 4 4-4M16 5l-4-4-4 4"/></svg>
+        </button>
+        <button class="btn btn-icon" id="btn-save-project" title="保存项目">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        </button>
+        <button class="btn btn-icon" id="btn-open-project" title="打开项目">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        </button>
+      </div>
+
+      <div class="panel-header">
+        <span class="panel-label">图片列表</span>
+        <span class="badge" id="file-badge">0</span>
+      </div>
+
+      <div class="list-scroll" id="image-list">
+        <div class="empty-state">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="0.8" opacity="0.25"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+          <p>拖拽图片到此处<br/>或点击上方按钮添加</p>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ─── Main ─── -->
+    <main id="main">
+
+      <!-- Toolbar (draggable window region) -->
+      <header id="toolbar" data-tauri-drag-region>
+        <div class="toolbar-group">
+          <button class="btn btn-icon btn-tool" id="btn-move-up" disabled title="上移">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m18 15-6-6-6 6"/></svg>
+          </button>
+          <button class="btn btn-icon btn-tool" id="btn-move-down" disabled title="下移">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div class="divider-v"></div>
+          <button class="btn btn-icon btn-tool" id="btn-remove" disabled title="移除">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+          <button class="btn btn-icon btn-tool" id="btn-clear" title="清空">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          </button>
+        </div>
+        <div class="toolbar-group">
+          <span class="file-count" id="file-count-label">0 张</span>
+        </div>
+        <div class="window-controls">
+          <button class="btn-win" id="win-minimize" title="最小化">
+            <svg width="14" height="14" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="2" fill="currentColor"/></svg>
+          </button>
+          <button class="btn-win" id="win-maximize" title="最大化">
+            <svg width="14" height="14" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          </button>
+          <button class="btn-win btn-win-close" id="win-close" title="关闭">
+            <svg width="14" height="14" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6l-12 12" stroke="currentColor" stroke-width="2"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Preview -->
+      <div id="preview">
+        <div class="preview-placeholder" id="preview-placeholder">
+          <svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="0.8" opacity="0.15"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+          <p>选择图片开始预览</p>
+        </div>
+        <div class="preview-image-wrap" id="preview-wrap" style="display:none">
+          <img id="preview-image" alt="预览" />
+        </div>
+      </div>
+
+      <!-- Settings -->
+      <footer id="settings">
+        <div class="settings-inner">
+
+          <div class="setting-group">
+            <span class="setting-label">输出格式</span>
+            <div class="custom-select" id="format-select" tabindex="0">
+              <div class="custom-select-trigger">
+                <span class="custom-select-value">PDF</span>
+                <svg class="custom-select-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m6 9 6 6 6-6"/></svg>
+              </div>
+              <div class="custom-select-menu" id="format-menu">
+                <div class="custom-select-option selected" data-value="PDF">PDF</div>
+                <div class="custom-select-option" data-value="EPUB">EPUB</div>
+                <div class="custom-select-option" data-value="LongPNG">长图 PNG</div>
+                <div class="custom-select-option" data-value="LongJPG">长图 JPG</div>
+                <div class="custom-select-option" data-value="LongWEBP">长图 WEBP</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="setting-group">
+            <span class="setting-label">标题</span>
+            <input type="text" id="title-input" value="Comic" class="input-glass" />
+          </div>
+
+          <div class="setting-group long-img-group" style="display:none">
+            <span class="setting-label">拼接模式</span>
+            <div class="inline-select" id="stitch-select">
+              <span class="inline-option selected" data-value="uniform">统一宽度</span>
+              <span class="inline-option" data-value="original">原像素</span>
+            </div>
+          </div>
+
+          <div class="setting-group long-img-group" style="display:none">
+            <span class="setting-label">宽度</span>
+            <input type="number" id="width-input" class="input-glass" value="1200" min="100" max="10000" />
+          </div>
+
+          <div class="setting-group long-img-group" style="display:none">
+            <span class="setting-label">边框</span>
+            <div class="input-row">
+              <input type="number" id="border-width-input" class="input-glass input-narrow" value="0" min="0" max="200" />
+              <span class="unit">px</span>
+              <input type="color" id="border-color-input" value="#000000" class="input-color" />
+            </div>
+          </div>
+
+          <div class="setting-group grow">
+            <span class="setting-label">输出目录</span>
+            <div class="input-row">
+              <input type="text" id="outdir-input" class="input-glass" readonly />
+              <button class="btn btn-ghost" id="btn-outdir">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <button class="btn btn-primary" id="btn-export">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            <span>导出</span>
+          </button>
+
+        </div>
+
+        <div class="progress-area" id="progress-area" style="display:none">
+          <div class="progress-track">
+            <div class="progress-fill" id="progress-fill"></div>
+          </div>
+          <span class="progress-text" id="progress-text">处理中…</span>
+        </div>
+      </footer>
+
+    </main>
+  </div>
+
+  <div id="toast"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

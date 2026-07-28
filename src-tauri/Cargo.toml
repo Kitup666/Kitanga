@@ -1,0 +1,24 @@
+[package]
+name = "kitanga"
+version = "1.0.0"
+description = "Kitanga - Comic/Manga stitching tool"
+authors = ["Kitanga"]
+edition = "2021"
+
+[lib]
+name = "kitanga_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tokio = { version = "1", features = ["rt"] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp"] }
+zip = { version = "2", features = ["deflate", "time"] }
+uuid = { version = "1", features = ["v4"] }
+base64 = "0.22"
