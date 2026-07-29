@@ -1,10 +1,18 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 
 const $ = (s, p = document) => p.querySelector(s);
 const $$ = (s, p = document) => [...p.querySelectorAll(s)];
+
+/* Runtime environment check — true only inside Tauri desktop app */
+const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+/* Lazily resolve getCurrentWindow only when running inside Tauri */
+async function getTauriWindow() {
+  if (!isTauri) return null;
+  const mod = await import("@tauri-apps/api/window");
+  return mod.getCurrentWindow();
+}
 
 let files = [];
 let selectedIndex = -1;
@@ -71,6 +79,7 @@ function createItemEl(i) {
   div.className = `img-item${i === selectedIndex ? " selected" : ""}`;
   div.draggable = true;
   div.dataset.index = i;
+  div.style.setProperty("--i", i % 30);
   div.innerHTML = `
     <span class="img-drag-handle">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="5" r="1.5"/><circle cx="15" cy="5" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="19" r="1.5"/><circle cx="15" cy="19" r="1.5"/></svg>
@@ -327,6 +336,112 @@ function showPreview(url) {
   elPlaceholder.style.display = "none";
   elPreview.style.animation = "none";
   requestAnimationFrame(() => { elPreview.style.animation = "previewIn 0.3s ease"; });
+  resetZoom();
+}
+
+/* ─── Preview Zoom / Pan ─── */
+let zoomLevel = 1;
+let panX = 0, panY = 0;
+let isPanning = false;
+let panStartX = 0, panStartY = 0;
+let panStartPanX = 0, panStartPanY = 0;
+let zoomHideTimer = null;
+
+const elZoomIndicator = $("#zoom-indicator");
+const elZoomLevel = $("#zoom-level");
+
+function applyZoom() {
+  elPreview.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`;
+  elZoomLevel.textContent = Math.round(zoomLevel * 100) + "%";
+  if (zoomLevel !== 1) {
+    elPreview.classList.add("zoomed");
+    elZoomIndicator.classList.add("visible");
+  } else {
+    elPreview.classList.remove("zoomed");
+    elZoomIndicator.classList.remove("visible");
+  }
+}
+
+function resetZoom() {
+  zoomLevel = 1; panX = 0; panY = 0;
+  applyZoom();
+}
+
+function setZoom(newZoom, centerX, centerY) {
+  const minZoom = 0.2, maxZoom = 5;
+  newZoom = Math.max(minZoom, Math.min(maxZoom, newZoom));
+  if (centerX !== undefined && centerY !== undefined && newZoom !== zoomLevel) {
+    // Zoom toward cursor point
+    const rect = elPreview.getBoundingClientRect();
+    const wrapRect = elPreviewWrap.getBoundingClientRect();
+    const imgCenterX = rect.left + rect.width / 2 - wrapRect.left;
+    const imgCenterY = rect.top + rect.height / 2 - wrapRect.top;
+    const dx = centerX - imgCenterX;
+    const dy = centerY - imgCenterY;
+    const ratio = newZoom / zoomLevel;
+    panX = dx - (dx - panX) * ratio;
+    panY = dy - (dy - panY) * ratio;
+  }
+  zoomLevel = newZoom;
+  applyZoom();
+  showZoomIndicator();
+}
+
+function showZoomIndicator() {
+  elZoomIndicator.classList.add("visible");
+  clearTimeout(zoomHideTimer);
+  if (zoomLevel === 1) {
+    zoomHideTimer = setTimeout(() => elZoomIndicator.classList.remove("visible"), 1500);
+  }
+}
+
+function initZoomPan() {
+  // Wheel zoom
+  elPreviewWrap.addEventListener("wheel", (e) => {
+    if (elPreviewWrap.style.display === "none") return;
+    e.preventDefault();
+    const rect = elPreviewWrap.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const delta = -e.deltaY * 0.002;
+    setZoom(zoomLevel * (1 + delta), x, y);
+  }, { passive: false });
+
+  // Drag to pan
+  elPreview.addEventListener("mousedown", (e) => {
+    if (zoomLevel === 1) return;
+    e.preventDefault();
+    isPanning = true;
+    panStartX = e.clientX;
+    panStartY = e.clientY;
+    panStartPanX = panX;
+    panStartPanY = panY;
+    elPreview.classList.add("panning");
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!isPanning) return;
+    panX = panStartPanX + (e.clientX - panStartX);
+    panY = panStartPanY + (e.clientY - panStartY);
+    elPreview.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`;
+  });
+
+  document.addEventListener("mouseup", () => {
+    if (!isPanning) return;
+    isPanning = false;
+    elPreview.classList.remove("panning");
+  });
+
+  // Double-click reset
+  elPreview.addEventListener("dblclick", () => {
+    if (zoomLevel !== 1) resetZoom();
+    else setZoom(2);
+  });
+
+  // Zoom buttons
+  $("#zoom-in").addEventListener("click", () => setZoom(zoomLevel * 1.25));
+  $("#zoom-out").addEventListener("click", () => setZoom(zoomLevel / 1.25));
+  $("#zoom-reset").addEventListener("click", resetZoom);
 }
 
 function updateButtons() {
@@ -599,11 +714,66 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#btn-open-project").addEventListener("click", openProject);
   $("#btn-export").addEventListener("click", startExport);
 
-  // Window controls
-  const win = getCurrentWindow();
-  $("#win-minimize").addEventListener("click", () => win.minimize());
-  $("#win-maximize").addEventListener("click", () => win.toggleMaximize());
-  $("#win-close").addEventListener("click", () => win.close());
+  // Window controls (Tauri only — gracefully skip in browser)
+  if (isTauri) {
+    getTauriWindow().then((win) => {
+      if (!win) return;
+      $("#win-minimize").addEventListener("click", () => win.minimize());
+      $("#win-maximize").addEventListener("click", () => win.toggleMaximize());
+      $("#win-close").addEventListener("click", () => win.close());
+    });
+  }
+
+  // Long-press drag on toolbar to reposition window
+  const toolbar = $("#toolbar");
+  let longPressTimer = null;
+  let longPressStartPos = null;
+  let longPressDragging = false;
+  const LONG_PRESS_MS = 300;
+  const LONG_PRESS_DIST = 5;
+
+  function onLongPressStart(e) {
+    if (e.target.closest("button")) return;
+    longPressStartPos = { x: e.clientX, y: e.clientY };
+    longPressTimer = setTimeout(() => {
+      longPressDragging = true;
+      toolbar.style.cursor = "grabbing";
+      getTauriWindow().then((w) => {
+        if (w) w.startDrag();
+      });
+    }, LONG_PRESS_MS);
+  }
+  function onLongPressMove(e) {
+    if (!longPressStartPos) return;
+    const dx = (e.clientX ?? e.touches?.[0]?.clientX) - longPressStartPos.x;
+    const dy = (e.clientY ?? e.touches?.[0]?.clientY) - longPressStartPos.y;
+    if (Math.abs(dx) > LONG_PRESS_DIST || Math.abs(dy) > LONG_PRESS_DIST) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+      if (!longPressDragging) {
+        longPressDragging = true;
+        toolbar.style.cursor = "grabbing";
+        getTauriWindow().then((w) => {
+          if (w) w.startDrag();
+        });
+      }
+    }
+  }
+  function onLongPressEnd() {
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+    longPressStartPos = null;
+    if (longPressDragging) {
+      longPressDragging = false;
+      toolbar.style.cursor = "";
+    }
+  }
+  toolbar.addEventListener("mousedown", onLongPressStart);
+  toolbar.addEventListener("touchstart", onLongPressStart, { passive: true });
+  document.addEventListener("mousemove", onLongPressMove);
+  document.addEventListener("touchmove", onLongPressMove, { passive: true });
+  document.addEventListener("mouseup", onLongPressEnd);
+  document.addEventListener("touchend", onLongPressEnd);
 
   $("#title-input").addEventListener("keydown", (e) => {
     if (e.key === "Enter") startExport();
@@ -612,18 +782,89 @@ document.addEventListener("DOMContentLoaded", async () => {
   initCustomSelect(toggleLongSettings);
   initStitchSelect();
   toggleLongSettings();
+  initZoomPan();
+
+  // Ripple effect on buttons
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest(".btn, .btn-primary, .btn-action, .btn-ghost, .btn-icon, .btn-tool");
+    if (!btn) return;
+    const r = document.createElement("span");
+    r.className = "ripple";
+    const rect = btn.getBoundingClientRect();
+    const size = Math.max(rect.width, rect.height);
+    r.style.width = r.style.height = size + "px";
+    r.style.left = (e.clientX - rect.left - size / 2) + "px";
+    r.style.top = (e.clientY - rect.top - size / 2) + "px";
+    btn.appendChild(r);
+    setTimeout(() => r.remove(), 600);
+  });
+
   document.addEventListener("keydown", (e) => {
-    if (e.target.tagName === "INPUT") return;
+    if (e.target.tagName === "INPUT") {
+      if (e.key === "Escape") e.target.blur();
+      return;
+    }
     switch (e.key) {
       case "Delete": case "Backspace": removeSelected(); break;
       case "ArrowUp": if (selectedIndex > 0) selectItem(selectedIndex - 1); break;
       case "ArrowDown": if (selectedIndex < files.length - 1) selectItem(selectedIndex + 1); break;
       case "o": if (e.ctrlKey) { e.preventDefault(); addFiles(); } break;
+      case "s": if (e.ctrlKey) { e.preventDefault(); saveProject(); } break;
+      case "e": if (e.ctrlKey) { e.preventDefault(); startExport(); } break;
+      case "Escape": resetZoom(); break;
+      case "+": case "=": setZoom(zoomLevel * 1.25); break;
+      case "-": setZoom(zoomLevel / 1.25); break;
+      case "0": resetZoom(); break;
     }
   });
 
   document.body.addEventListener("dragover", (e) => e.preventDefault());
-  document.body.addEventListener("drop", (e) => { e.preventDefault(); addFiles(); });
+
+  // Drag-drop overlay using Tauri 2 API (or HTML5 fallback in browser)
+  const dragOverlay = $("#drag-overlay");
+  if (isTauri) {
+    getTauriWindow().then((win) => {
+      if (!win) return;
+      win.onDragDropEvent((event) => {
+        if (event.payload.type === "hover") {
+          dragOverlay.classList.add("active");
+        } else if (event.payload.type === "drop") {
+          dragOverlay.classList.remove("active");
+          const paths = event.payload.paths;
+          if (paths && paths.length > 0) {
+            thumbDir = null;
+            const start = files.length;
+            for (const p of paths) {
+              if (!files.includes(p)) files.push(p);
+            }
+            if (files.length > start) {
+              appendItemsToDOM(start, files.length);
+              if (selectedIndex < 0 && files.length > 0) selectItem(0);
+              $$(".img-drag-handle").forEach(h => h.style.display = files.length > 1 ? "" : "none");
+            }
+          }
+        } else if (event.payload.type === "cancel") {
+          dragOverlay.classList.remove("active");
+        }
+      });
+    });
+  } else {
+    // Fallback: HTML5 drag-drop (browser dev mode)
+    let dragCounter = 0;
+    window.addEventListener("dragenter", (e) => {
+      e.preventDefault(); dragCounter++;
+      dragOverlay.classList.add("active");
+    });
+    window.addEventListener("dragleave", (e) => {
+      e.preventDefault(); dragCounter--;
+      if (dragCounter <= 0) { dragCounter = 0; dragOverlay.classList.remove("active"); }
+    });
+    window.addEventListener("drop", (e) => {
+      e.preventDefault(); dragCounter = 0;
+      dragOverlay.classList.remove("active");
+      addFiles();
+    });
+  }
 
   try {
     const { desktopDir } = await import("@tauri-apps/api/path");
